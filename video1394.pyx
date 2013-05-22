@@ -69,6 +69,12 @@ FRAMERATE_120       = DC1394_FRAMERATE_120
 FRAMERATE_240       = DC1394_FRAMERATE_240
 
 
+ISO_SPEED_100		= DC1394_ISO_SPEED_100
+ISO_SPEED_200 		= DC1394_ISO_SPEED_200
+ISO_SPEED_400		= DC1394_ISO_SPEED_400
+ISO_SPEED_800		= DC1394_ISO_SPEED_800
+ISO_SPEED_1600		= DC1394_ISO_SPEED_1600
+ISO_SPEED_3200		= DC1394_ISO_SPEED_3200
 
 cdef list DC1394ISOSpeedTable = [
                         DC1394_ISO_SPEED_100,
@@ -118,7 +124,6 @@ cdef inline int DC1394SafeCall(dc1394error_t error) except -1:
     if DC1394_SUCCESS != error:
         errstr = dc1394_error_get_string(error)
         raise DC1394Error(errstr)
-        return_value = -1
     return return_value
 
 
