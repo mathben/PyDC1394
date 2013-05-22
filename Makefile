@@ -7,5 +7,5 @@ video1394.c : video1394.pyx
 	cython video1394.pyx
 
 clean :
-	rm video1394.c
-	rm video1394.so
+	-rm video1394.c
+	-rm video1394.so
