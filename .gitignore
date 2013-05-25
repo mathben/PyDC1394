@@ -1,6 +1,7 @@
 *.pyc
 video1394.c
 video1394.so
+cython_debug
 
 # text editor
 *.swp

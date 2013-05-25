@@ -1,14 +1,3 @@
-#
-#
-#
-#
-#
-#
-#
-#
-
-
-
 import threading
 import sys
 
@@ -102,7 +91,7 @@ cdef dict DC1394NumpyColorCoding = {
 cdef dict DC1394NumpyColorCoding2 = {
             DC1394_COLOR_CODING_MONO8       : ("u8", 1),
             DC1394_COLOR_CODING_YUV411      : ("u8", 1),
-            DC1394_COLOR_CODING_YUV422      : ("u8", 1),
+            DC1394_COLOR_CODING_YUV422      : ("u8", 3),
             DC1394_COLOR_CODING_YUV444      : ("u8", 1),
             DC1394_COLOR_CODING_RGB8        : ("u8", 3),
             DC1394_COLOR_CODING_MONO16      : ("u16", 1),
@@ -189,6 +178,7 @@ cdef class DC1394Camera(object):
     cdef dict available_modes
     cdef bint stop_event
     cdef bint running
+    cdef bint force_rgb8
     cdef object __grab_event__
     cdef object __init_event__
     cdef object __stop_event__
@@ -200,7 +190,6 @@ cdef class DC1394Camera(object):
         dc1394_camera_free(self.cam)
 
     def __cinit__(self, DC1394Context ctx, uint64_t guid, int unit = -1):
-
         self.ctx = ctx
         if unit != -1:
             self.cam = dc1394_camera_new_unit(ctx.dc1394, guid, unit)
@@ -217,15 +206,17 @@ cdef class DC1394Camera(object):
 
         self.populate_capabilities()
 
+        self.force_rgb8 = False
         self.running = False
         self.stop_event = False
         self.__grab_event__ = events.Event()
         self.__init_event__ = events.Event()
         self.__stop_event__ = events.Event()
 
-    def start(self):
+    def start(self, force_rgb8=False):
         if (self.running):
             raise RuntimeError("Camera Already Running")
+        self.force_rgb8 = force_rgb8
         self.power = True
         self.stop_event = False
         self.capture_loop = threading.Thread(target = self.run, name = "DC1394 capture loop")
@@ -239,14 +230,17 @@ cdef class DC1394Camera(object):
         cdef dc1394video_frame_t *frame
         cdef dc1394error_t err
 
-        selectlist = [self.fileno]
         dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_WAIT, &frame)
+        if self.force_rgb8:
+            dtype2 = DC1394NumpyColorCoding[frame.color_coding]
+            dtype = DC1394NumpyColorCoding[DC1394_COLOR_CODING_RGB8]
+        else:
+            dtype = DC1394NumpyColorCoding[frame.color_coding]
 
-        dtype = DC1394NumpyColorCoding[frame.color_coding]
-
-        cdef np.ndarray[np.uint8_t, ndim=3, mode="c"] arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8 )
+        cdef np.ndarray[np.uint8_t, ndim=3, mode="c"] arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
         cdef object nparr = arr
         cdef char *orig_ptr = arr.data
+        cdef uint8_t pixel_convert[480000 * 3] #frame.size[1]*frame.size[0]*dtype.itemsize
         cdef np.dtype orig_dtype = arr.dtype
         arr.dtype = dtype
         nparr.shape = (frame.size[1], frame.size[0])
@@ -261,10 +255,13 @@ cdef class DC1394Camera(object):
             if err != DC1394_SUCCESS:
                 continue
 
-            arr.data = <char *>frame.image
+            if self.force_rgb8 and frame.color_coding == DC1394_COLOR_CODING_YUV422:
+                dc1394_convert_to_RGB8(frame.image, pixel_convert, frame.size[1], frame.size[0], DC1394_BYTE_ORDER_UYVY, DC1394_COLOR_CODING_YUV422, 8);
+                arr.data = <char *>pixel_convert;
+            else:
+                arr.data = <char *>frame.image
             self.__grab_event__(arr, frame.timestamp)
             dc1394_capture_enqueue(self.cam, frame)
-
 
         arr.data = orig_ptr
         arr.dtype = orig_dtype
