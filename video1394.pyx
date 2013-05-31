@@ -166,10 +166,21 @@ cdef class DC1394Context(object):
         dc1394_camera_free_list(camera_lst)
         return return_value
 
-    cpdef createCamera(self, unsigned int cid):
-        cdef dict camdesc = self.enumerateCameras()[cid]
-        return  DC1394Camera(self, camdesc['guid'], unit = camdesc['unit'])
-
+    cpdef createCamera(self, int cid = -1, int64_t guid = -1):
+        cdef dict camdesc
+        enumCam = self.enumerateCameras()
+        if guid > 0:
+            for cam in enumCam:
+                if cam['guid'] == guid:
+                    camdesc = self.enumerateCameras()[cid]
+                    return DC1394Camera(self, camdesc['guid'], unit = camdesc['unit'])
+            return None
+        if not enumCam:
+            return None
+        if cid >= len(enumCam):
+            return None
+        camdesc = self.enumerateCameras()[cid]
+        return DC1394Camera(self, camdesc['guid'], unit = camdesc['unit'])
 
 
 cdef class DC1394Camera(object):
@@ -240,6 +251,7 @@ cdef class DC1394Camera(object):
         cdef np.ndarray[np.uint8_t, ndim=3, mode="c"] arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
         cdef object nparr = arr
         cdef char *orig_ptr = arr.data
+        # change me mister hardcode :(
         cdef uint8_t pixel_convert[480000 * 3] #frame.size[1]*frame.size[0]*dtype.itemsize
         cdef np.dtype orig_dtype = arr.dtype
         arr.dtype = dtype
