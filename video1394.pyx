@@ -167,19 +167,21 @@ cdef class DC1394Context(object):
         return return_value
 
     cpdef createCamera(self, int cid = -1, int64_t guid = -1):
-        cdef dict camdesc
+        camdesc = None
         enumCam = self.enumerateCameras()
-        if guid > 0:
-            for cam in enumCam:
-                if cam['guid'] == guid:
-                    camdesc = self.enumerateCameras()[cid]
-                    return DC1394Camera(self, camdesc['guid'], unit = camdesc['unit'])
-            return None
         if not enumCam:
             return None
         if cid >= len(enumCam):
             return None
-        camdesc = self.enumerateCameras()[cid]
+        if guid > 0:
+            for cam in enumCam:
+                if cam['guid'] == guid:
+                    camdesc = cam
+                    break
+            if not camdesc:
+                return None
+        if not camdesc:
+            camdesc = enumCam[cid]
         return DC1394Camera(self, camdesc['guid'], unit = camdesc['unit'])
 
 
