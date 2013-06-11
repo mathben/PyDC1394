@@ -375,6 +375,7 @@ cdef extern from "dc1394/dc1394.h":
 
     dc1394error_t dc1394_framerate_as_float(dc1394framerate_t framerate_enum, float *framerate) nogil
 
+    const_char_ptr dc1394_feature_get_string(dc1394feature_t feature) nogil
     const_char_ptr dc1394_error_get_string(dc1394error_t error) nogil
 
     dc1394error_t dc1394_capture_setup(dc1394camera_t *, uint32_t, uint32_t) nogil

@@ -198,6 +198,7 @@ cdef class DC1394Camera(object):
     cdef object capture_loop
     cdef dict available_features
     cdef dict unavailable_features
+    cdef dict available_features_string
 
     def __dealloc__(self):
         dc1394_camera_free(self.cam)
@@ -208,7 +209,6 @@ cdef class DC1394Camera(object):
             self.cam = dc1394_camera_new_unit(ctx.dc1394, guid, unit)
         else:
             self.cam = dc1394_camera_new(ctx.dc1394, guid);
-        self.populate_capabilities()
 
         try:
             self.operationMode = DC1394_OPERATION_MODE_1394B
@@ -298,25 +298,184 @@ cdef class DC1394Camera(object):
         cdef float framerate
 
         self.available_features = {}
+        self.available_features_string = {}
         self.unavailable_features = {}
         self.available_modes = {}
-
-        DC1394SafeCall(dc1394_video_get_supported_modes(self.cam, &modes))
-        for m in [modes.modes[i] for i in xrange(modes.num)]:
-            DC1394SafeCall(dc1394_video_get_supported_framerates (self.cam, m, &framerates))
-            fmlist = []
-            for j from 0 <= j < framerates.num:
-                fmlist.append(framerates.framerates[j])
-            self.available_modes[m] = fmlist
 
         cdef dc1394featureset_t featureset
         DC1394SafeCall(dc1394_feature_get_all(self.cam, &featureset))
 
         cdef dc1394feature_info_t featureinfo
-        for i from 0 < i < DC1394_FEATURE_NUM:
+        cdef const_char_ptr feature_name
+        for i in range(DC1394_FEATURE_NUM):
             featureinfo = featureset.feature[i]
             if (featureinfo.available == DC1394_TRUE):
                 self.available_features[featureinfo.id] = featureinfo
+                feature_name = dc1394_feature_get_string(featureinfo.id)
+                self.available_features_string[feature_name] = featureinfo
+            else:
+                self.unavailable_features[featureinfo.id] = featureinfo
+
+        DC1394SafeCall(dc1394_video_get_supported_modes(self.cam, &modes))
+        for m in [modes.modes[i] for i in xrange(modes.num)]:
+            try:
+                DC1394SafeCall(dc1394_video_get_supported_framerates (self.cam, m, &framerates))
+            except:
+                break
+            fmlist = []
+            for j in range(framerates.num):
+                fmlist.append(framerates.framerates[j])
+            self.available_modes[m] = fmlist
+
+    def get_dict_available_features(self):
+        return self.available_features_string
+
+    def get_property(self, name):
+        return self._set_get_property(name)
+
+    def set_property(self, name, value):
+        self._set_get_property(name, value=value)
+
+    def _set_get_property(self, name, value=None):
+        feature = self.available_features_string.get(name, None)
+        if not feature:
+            raise DC1394Error("[%s] not available into available_features_string-_set_get_property" % name)
+        id = feature["id"]
+        if id == DC1394_FEATURE_BRIGHTNESS:
+            if value is not None:
+                self.brightness = value
+                return
+            else:
+                return self.brightness
+        if id == DC1394_FEATURE_EXPOSURE:
+            if value is not None:
+                self.exposure = value
+                return
+            else:
+                return self.exposure
+        if id == DC1394_FEATURE_SHARPNESS:
+            if value is not None:
+                self.sharpness = value
+                return
+            else:
+                return self.sharpness
+        if id == DC1394_FEATURE_WHITE_BALANCE:
+            if value is not None:
+                self.whiteBalance = value
+                return
+            else:
+                return self.whiteBalance
+        if id == DC1394_FEATURE_HUE:
+            if value is not None:
+                self.hue = value
+                return
+            else:
+                return self.hue
+        if id == DC1394_FEATURE_SATURATION:
+            if value is not None:
+                self.saturation = value
+                return
+            else:
+                return self.saturation
+        if id == DC1394_FEATURE_GAMMA:
+            if value is not None:
+                self.gamma = value
+                return
+            else:
+                return self.gamma
+        if id == DC1394_FEATURE_SHUTTER:
+            if value is not None:
+                self.shutter = value
+                return
+            else:
+                return self.shutter
+        if id == DC1394_FEATURE_GAIN:
+            if value is not None:
+                self.gain = value
+                return
+            else:
+                return self.gain
+        if id == DC1394_FEATURE_IRIS:
+            if value is not None:
+                self.iris = value
+                return
+            else:
+                return self.iris
+        if id == DC1394_FEATURE_FOCUS:
+            if value is not None:
+                self.focus = value
+                return
+            else:
+                return self.focus
+        if id == DC1394_FEATURE_TEMPERATURE:
+            if value is not None:
+                self.temperature = value
+                return
+            else:
+                return self.temperature
+        if id == DC1394_FEATURE_TRIGGER:
+            if value is not None:
+                self.trigger = value
+                return
+            else:
+                return self.trigger
+        if id == DC1394_FEATURE_TRIGGER_DELAY:
+            if value is not None:
+                self.triggerDelay = value
+                return
+            else:
+                return self.triggerDelay
+        if id == DC1394_FEATURE_WHITE_SHADING:
+            if value is not None:
+                self.whiteShading = value
+                return
+            else:
+                return self.whiteShading
+        if id == DC1394_FEATURE_FRAME_RATE:
+            if value is not None:
+                self.frameRate = value
+                return
+            else:
+                return self.frameRate
+        if id == DC1394_FEATURE_ZOOM:
+            if value is not None:
+                self.zoom = value
+                return
+            else:
+                return self.zoom
+        if id == DC1394_FEATURE_PAN:
+            if value is not None:
+                self.pan = value
+                return
+            else:
+                return self.pan
+        if id == DC1394_FEATURE_TILT:
+            if value is not None:
+                self.tilt = value
+                return
+            else:
+                return self.tilt
+        if id == DC1394_FEATURE_OPTICAL_FILTER:
+            if value is not None:
+                self.opticalFilter = value
+                return
+            else:
+                return self.opticalFilter
+        if id == DC1394_FEATURE_CAPTURE_SIZE:
+            if value is not None:
+                self.captureSize = value
+                return
+            else:
+                return self.captureSize
+        if id == DC1394_FEATURE_CAPTURE_QUALITY:
+            if value is not None:
+                self.captureQuality = value
+                return
+            else:
+                return self.captureQuality
+
+        raise DC1394Error("Can't find id %s-_set_get_property" % id)
+
 
     property initEvent:
         def __get__(self):
@@ -331,19 +490,24 @@ cdef class DC1394Camera(object):
         def __get__(self):
             return dc1394_capture_get_fileno(self.cam)
 
-    # -------------------------------------------------------------------------
+    property available_features:
+        def __get__(self):
+            return self.available_features
 
+    property available_features_string:
+        def __get__(self):
+            return self.available_features_string
+
+    # -------------------------------------------------------------------------
     def __repr__(self):
         return '<DC1394Camera vendor="%s" model="%s"/>' % (self.cam.vendor, self.cam.model)
 
     # -------------------------------------------------------------------------
-
     property grabEvent:
         def __get__(self):
             return self.__grab_event__
 
     # -------------------------------------------------------------------------
-
     property bandwitdh:
         def __get__(self):
             cdef uint32_t bandwidth
@@ -351,7 +515,6 @@ cdef class DC1394Camera(object):
             return bandwidth
 
     # -------------------------------------------------------------------------
-
     property multishot:
         def __get__(self):
             cdef dc1394bool_t pwr
@@ -369,15 +532,13 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_BRIGHTNESS not in self.available_features:
                 raise DC1394Error("[brightness] not available")
 
-            feature = self.available_features[DC1394_FEATURE_BRIGHTNESS]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_BRIGHTNESS, &value)
             return value
 
         def __set__(self, uint32_t value):
             if DC1394_FEATURE_BRIGHTNESS not in self.available_features:
-                raise DC1394Error("[brightness not available")
+                raise DC1394Error("[brightness] not available")
 
             feature = self.available_features[DC1394_FEATURE_BRIGHTNESS]
             if feature['current_mode'] == DC1394_FEATURE_MODE_AUTO:
@@ -388,16 +549,13 @@ cdef class DC1394Camera(object):
 
             DC1394SafeCall(dc1394_feature_set_value(self.cam, DC1394_FEATURE_BRIGHTNESS, value))
 
-
     # -------------------------------------------------------------------------
     property exposure:
         def __get__(self):
             if DC1394_FEATURE_EXPOSURE not in self.available_features:
                 raise DC1394Error("[exposure] not available")
 
-            feature = self.available_features[DC1394_FEATURE_EXPOSURE]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_EXPOSURE, &value)
             return value
 
@@ -421,9 +579,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_SHARPNESS not in self.available_features:
                 raise DC1394Error("[sharpness] not available")
 
-            feature = self.available_features[DC1394_FEATURE_SHARPNESS]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_SHARPNESS, &value)
             return value
 
@@ -447,9 +603,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_WHITE_BALANCE not in self.available_features:
                 raise DC1394Error("[whiteBalance] not available")
 
-            feature = self.available_features[DC1394_FEATURE_WHITE_BALANCE]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_WHITE_BALANCE, &value)
             return value
 
@@ -473,9 +627,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_HUE not in self.available_features:
                 raise DC1394Error("[hue] not available")
 
-            feature = self.available_features[DC1394_FEATURE_HUE]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_HUE, &value)
             return value
 
@@ -499,9 +651,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_SATURATION not in self.available_features:
                 raise DC1394Error("[saturation] not available")
 
-            feature = self.available_features[DC1394_FEATURE_SATURATION]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_SATURATION, &value)
             return value
 
@@ -525,9 +675,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_GAMMA not in self.available_features:
                 raise DC1394Error("[gamma] not available")
 
-            feature = self.available_features[DC1394_FEATURE_GAMMA]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_GAMMA, &value)
             return value
 
@@ -551,9 +699,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_SHUTTER not in self.available_features:
                 raise DC1394Error("[shutter] not available")
 
-            feature = self.available_features[DC1394_FEATURE_SHUTTER]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_SHUTTER, &value)
             return value
 
@@ -577,9 +723,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_GAIN not in self.available_features:
                 raise DC1394Error("[gain] not available")
 
-            feature = self.available_features[DC1394_FEATURE_GAIN]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_GAIN, &value)
             return value
 
@@ -603,9 +747,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_IRIS not in self.available_features:
                 raise DC1394Error("[iris] not available")
 
-            feature = self.available_features[DC1394_FEATURE_IRIS]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_IRIS, &value)
             return value
 
@@ -629,9 +771,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_FOCUS not in self.available_features:
                 raise DC1394Error("[focus] not available")
 
-            feature = self.available_features[DC1394_FEATURE_FOCUS]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_FOCUS, &value)
             return value
 
@@ -655,9 +795,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_TEMPERATURE not in self.available_features:
                 raise DC1394Error("[temperature] not available")
 
-            feature = self.available_features[DC1394_FEATURE_TEMPERATURE]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_TEMPERATURE, &value)
             return value
 
@@ -681,9 +819,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_TRIGGER not in self.available_features:
                 raise DC1394Error("[trigger] not available")
 
-            feature = self.available_features[DC1394_FEATURE_TRIGGER]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_TRIGGER, &value)
             return value
 
@@ -707,9 +843,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_TRIGGER_DELAY not in self.available_features:
                 raise DC1394Error("[triggerDelay] not available")
 
-            feature = self.available_features[DC1394_FEATURE_TRIGGER_DELAY]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_TRIGGER_DELAY, &value)
             return value
 
@@ -733,9 +867,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_WHITE_SHADING not in self.available_features:
                 raise DC1394Error("[whiteShading] not available")
 
-            feature = self.available_features[DC1394_FEATURE_WHITE_SHADING]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_WHITE_SHADING, &value)
             return value
 
@@ -759,9 +891,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_FRAME_RATE not in self.available_features:
                 raise DC1394Error("[frameRate] not available")
 
-            feature = self.available_features[DC1394_FEATURE_FRAME_RATE]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_FRAME_RATE, &value)
             return value
 
@@ -785,9 +915,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_ZOOM not in self.available_features:
                 raise DC1394Error("[zoom] not available")
 
-            feature = self.available_features[DC1394_FEATURE_ZOOM]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_ZOOM, &value)
             return value
 
@@ -811,9 +939,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_PAN not in self.available_features:
                 raise DC1394Error("[pan] not available")
 
-            feature = self.available_features[DC1394_FEATURE_PAN]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_PAN, &value)
             return value
 
@@ -837,9 +963,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_TILT not in self.available_features:
                 raise DC1394Error("[tilt] not available")
 
-            feature = self.available_features[DC1394_FEATURE_TILT]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_TILT, &value)
             return value
 
@@ -863,9 +987,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_OPTICAL_FILTER not in self.available_features:
                 raise DC1394Error("[opticalFilter] not available")
 
-            feature = self.available_features[DC1394_FEATURE_OPTICAL_FILTER]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_OPTICAL_FILTER, &value)
             return value
 
@@ -889,9 +1011,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_CAPTURE_SIZE not in self.available_features:
                 raise DC1394Error("[captureSize] not available")
 
-            feature = self.available_features[DC1394_FEATURE_CAPTURE_SIZE]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_CAPTURE_SIZE, &value)
             return value
 
@@ -915,9 +1035,7 @@ cdef class DC1394Camera(object):
             if DC1394_FEATURE_CAPTURE_QUALITY not in self.available_features:
                 raise DC1394Error("[captureQuality] not available")
 
-            feature = self.available_features[DC1394_FEATURE_CAPTURE_QUALITY]
             cdef uint32_t value
-
             dc1394_feature_get_value(self.cam, DC1394_FEATURE_CAPTURE_QUALITY, &value)
             return value
 
@@ -938,7 +1056,6 @@ cdef class DC1394Camera(object):
 
 
     # -------------------------------------------------------------------------
-
     property oneshot:
         def __get__(self):
             cdef dc1394bool_t pwr
@@ -950,7 +1067,6 @@ cdef class DC1394Camera(object):
             DC1394SafeCall(dc1394_video_set_one_shot(self.cam, pwr))
 
     # -------------------------------------------------------------------------
-
     property availableFramerates:
         def __get__(self):
             cdef float framerate
@@ -961,13 +1077,11 @@ cdef class DC1394Camera(object):
             return framerates
 
     # -------------------------------------------------------------------------
-
     property availableModes:
         def __get__(self):
             return self.available_modes
 
     # -------------------------------------------------------------------------
-
     property mode:
         def __get__(self):
             cdef dc1394video_mode_t mode
@@ -978,7 +1092,6 @@ cdef class DC1394Camera(object):
             DC1394SafeCall(dc1394_video_set_mode(self.cam, mode))
 
     # -------------------------------------------------------------------------
-
     property framerate:
         def __get__(self):
             cdef dc1394framerate_t framerate
@@ -989,7 +1102,6 @@ cdef class DC1394Camera(object):
             DC1394SafeCall(dc1394_video_set_framerate(self.cam, framerate))
 
     # -------------------------------------------------------------------------
-
     property isoSpeed:
         def __get__(self):
             cdef dc1394speed_t speed
@@ -1000,7 +1112,6 @@ cdef class DC1394Camera(object):
             DC1394SafeCall(dc1394_video_set_iso_speed(self.cam, speed))
 
     # -------------------------------------------------------------------------
-
     property operationMode:
         def __get__(self):
             cdef dc1394operation_mode_t mode
@@ -1011,7 +1122,6 @@ cdef class DC1394Camera(object):
             DC1394SafeCall(dc1394_video_set_operation_mode(self.cam, mode))
 
     # -------------------------------------------------------------------------
-
     property transmission:
         def __set__(self, dc1394switch_t trans):
             DC1394SafeCall(dc1394_video_set_transmission(self.cam, trans))
@@ -1022,37 +1132,31 @@ cdef class DC1394Camera(object):
             return trans
 
     # -------------------------------------------------------------------------
-
     property vendor:
         def __get__(self):
             return self.cam.vendor
 
     # -------------------------------------------------------------------------
-
     property model:
         def __get__(self):
             return self.cam.model
 
     # -------------------------------------------------------------------------
-
     property vendorID:
         def __get__(self):
             return self.cam.vendor_id
 
     # -------------------------------------------------------------------------
-
     property modelID:
         def __get__(self):
             return self.cam.model_id
 
     # -------------------------------------------------------------------------
-
     property SWVersion:
         def __get__(self):
             return (self.cam.unit_sw_version, self.cam.unit_sub_sw_version)
 
     # -------------------------------------------------------------------------
-
     property cycleTimer:
         def __get__(self):
             cdef uint32_t node, generation
@@ -1060,7 +1164,6 @@ cdef class DC1394Camera(object):
             return (node, generation)
 
     # -------------------------------------------------------------------------
-
     property node:
         def __get__(self):
             cdef uint32_t cycle_timer
@@ -1069,7 +1172,6 @@ cdef class DC1394Camera(object):
             return (cycle_timer, local_time)
 
     # -------------------------------------------------------------------------
-
     property broadcast:
         def __set__(self, bint broadcast):
             cdef dc1394bool_t flag = DC1394_TRUE if broadcast else DC1394_FALSE
@@ -1081,14 +1183,12 @@ cdef class DC1394Camera(object):
             return (flag == DC1394_TRUE)
 
     # -------------------------------------------------------------------------
-
     property power:
         def __set__(self, bint power):
             cdef dc1394switch_t pwr = DC1394_ON if power else DC1394_OFF
             DC1394SafeCall(dc1394_camera_set_power(self.cam, pwr))
 
     # -------------------------------------------------------------------------
-
     property softwareTrigger:
         def __get__(self):
             cdef dc1394switch_t pwr
@@ -1100,9 +1200,6 @@ cdef class DC1394Camera(object):
             DC1394SafeCall(dc1394_software_trigger_set_power(self.cam, pwr))
 
     # -------------------------------------------------------------------------
-
-
-
     def print_info(self):
         DC1394SafeCall(dc1394_camera_print_info(self.cam, stderr))
         cdef uint32_t width, height
