@@ -336,146 +336,64 @@ cdef class DC1394Camera(object):
     def set_property(self, name, value):
         self._set_get_property(name, value=value)
 
-    def _set_get_property(self, name, value=None):
+    def set_whitebalance(self, RV_value=None, BU_value=None):
+        cdef uint32_t actual_rv_value
+        cdef uint32_t actual_bu_value
+        name = "White Balance"
         feature = self.available_features_string.get(name, None)
         if not feature:
-            raise DC1394Error("[%s] not available into available_features_string-_set_get_property" % name)
+            raise DC1394Error("[%s] not available" % name)
         id = feature["id"]
-        if id == DC1394_FEATURE_BRIGHTNESS:
-            if value is not None:
-                self.brightness = value
-                return
-            else:
-                return self.brightness
-        if id == DC1394_FEATURE_EXPOSURE:
-            if value is not None:
-                self.exposure = value
-                return
-            else:
-                return self.exposure
-        if id == DC1394_FEATURE_SHARPNESS:
-            if value is not None:
-                self.sharpness = value
-                return
-            else:
-                return self.sharpness
-        if id == DC1394_FEATURE_WHITE_BALANCE:
-            if value is not None:
-                self.whiteBalance = value
-                return
-            else:
-                return self.whiteBalance
-        if id == DC1394_FEATURE_HUE:
-            if value is not None:
-                self.hue = value
-                return
-            else:
-                return self.hue
-        if id == DC1394_FEATURE_SATURATION:
-            if value is not None:
-                self.saturation = value
-                return
-            else:
-                return self.saturation
-        if id == DC1394_FEATURE_GAMMA:
-            if value is not None:
-                self.gamma = value
-                return
-            else:
-                return self.gamma
-        if id == DC1394_FEATURE_SHUTTER:
-            if value is not None:
-                self.shutter = value
-                return
-            else:
-                return self.shutter
-        if id == DC1394_FEATURE_GAIN:
-            if value is not None:
-                self.gain = value
-                return
-            else:
-                return self.gain
-        if id == DC1394_FEATURE_IRIS:
-            if value is not None:
-                self.iris = value
-                return
-            else:
-                return self.iris
-        if id == DC1394_FEATURE_FOCUS:
-            if value is not None:
-                self.focus = value
-                return
-            else:
-                return self.focus
-        if id == DC1394_FEATURE_TEMPERATURE:
-            if value is not None:
-                self.temperature = value
-                return
-            else:
-                return self.temperature
-        if id == DC1394_FEATURE_TRIGGER:
-            if value is not None:
-                self.trigger = value
-                return
-            else:
-                return self.trigger
-        if id == DC1394_FEATURE_TRIGGER_DELAY:
-            if value is not None:
-                self.triggerDelay = value
-                return
-            else:
-                return self.triggerDelay
-        if id == DC1394_FEATURE_WHITE_SHADING:
-            if value is not None:
-                self.whiteShading = value
-                return
-            else:
-                return self.whiteShading
-        if id == DC1394_FEATURE_FRAME_RATE:
-            if value is not None:
-                self.frameRate = value
-                return
-            else:
-                return self.frameRate
-        if id == DC1394_FEATURE_ZOOM:
-            if value is not None:
-                self.zoom = value
-                return
-            else:
-                return self.zoom
-        if id == DC1394_FEATURE_PAN:
-            if value is not None:
-                self.pan = value
-                return
-            else:
-                return self.pan
-        if id == DC1394_FEATURE_TILT:
-            if value is not None:
-                self.tilt = value
-                return
-            else:
-                return self.tilt
-        if id == DC1394_FEATURE_OPTICAL_FILTER:
-            if value is not None:
-                self.opticalFilter = value
-                return
-            else:
-                return self.opticalFilter
-        if id == DC1394_FEATURE_CAPTURE_SIZE:
-            if value is not None:
-                self.captureSize = value
-                return
-            else:
-                return self.captureSize
-        if id == DC1394_FEATURE_CAPTURE_QUALITY:
-            if value is not None:
-                self.captureQuality = value
-                return
-            else:
-                return self.captureQuality
+        if id != DC1394_FEATURE_WHITE_BALANCE:
+            raise DC1394Error("[%s] wrong feature, use set_property" % name)
 
-        raise DC1394Error("Can't find id %s-_set_get_property" % id)
+        DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_MANUAL))
+        dc1394_feature_whitebalance_get_value(self.cam, &actual_bu_value, &actual_rv_value)
 
+        if RV_value is not None:
+            if RV_value < feature['min'] or RV_value > feature['max']:
+                raise DC1394Error("[%s] RV_value out of range" % name)
+        else:
+            RV_value = actual_rv_value
+
+        if BU_value is not None:
+            if BU_value < feature['min'] or BU_value > feature['max']:
+                raise DC1394Error("[%s] BU_value out of range" % name)
+        else:
+            BU_value = actual_bu_value
+
+        DC1394SafeCall(dc1394_feature_whitebalance_set_value(self.cam, BU_value, RV_value))
+
+    def _set_get_property(self, name, value=None):
+        cdef uint32_t ret_value
+        feature = self.available_features_string.get(name, None)
+        if not feature:
+            raise DC1394Error("[%s] not available" % name)
+        id = feature["id"]
+        # try get section, if no value
+        if value is None:
+            dc1394_feature_get_value(self.cam, id, &ret_value)
+            return ret_value
+
+        # set section
+        #has_auto = hasFeatureMode(id, DC1394_FEATURE_MODE_AUTO)
+        has_auto = True
+        if value == -1:
+            # try to set auto
+            if not has_auto:
+                raise DC1394Error("[%s] hasn't feature auto. Value -1 is to active auto option." % name)
+            DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_AUTO))
+        else:
+            if has_auto:
+                DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_MANUAL))
+
+            if id == DC1394_FEATURE_WHITE_BALANCE:
+                return
+                #raise DC1394Error("[%s] cannot change value of white balance. Use set_whitebalance" % name)
+
+            if value < feature['min'] or value > feature['max']:
+                raise DC1394Error("[%s] value out of range" % name)
+            DC1394SafeCall(dc1394_feature_set_value(self.cam, id, value))
 
     property initEvent:
         def __get__(self):
@@ -619,7 +537,6 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[whiteBalance] value out of range")
 
             DC1394SafeCall(dc1394_feature_set_value(self.cam, DC1394_FEATURE_WHITE_BALANCE, value))
-
 
     # -------------------------------------------------------------------------
     property hue:

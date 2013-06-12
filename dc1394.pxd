@@ -364,6 +364,9 @@ cdef extern from "dc1394/dc1394.h":
     dc1394error_t dc1394_video_set_mode(dc1394camera_t *, dc1394video_mode_t) nogil
     dc1394error_t dc1394_video_get_mode(dc1394camera_t *, dc1394video_mode_t *) nogil
 
+    dc1394error_t dc1394_feature_get_mode(dc1394camera_t *, dc1394feature_t, dc1394feature_mode_t *) nogil
+    dc1394error_t dc1394_feature_set_mode(dc1394camera_t *, dc1394feature_t, dc1394feature_mode_t) nogil
+
     dc1394error_t dc1394_video_get_framerate(dc1394camera_t *, dc1394framerate_t *) nogil
     dc1394error_t dc1394_video_set_framerate(dc1394camera_t *, dc1394framerate_t) nogil
 
@@ -422,6 +425,8 @@ cdef extern from "dc1394/dc1394.h":
     dc1394error_t dc1394_feature_get_value(dc1394camera_t *, dc1394feature_t, uint32_t *) nogil
     dc1394error_t dc1394_feature_set_value(dc1394camera_t *, dc1394feature_t, uint32_t) nogil
 
+    dc1394error_t dc1394_feature_whitebalance_set_value(dc1394camera_t *, uint32_t, uint32_t) nogil
+    dc1394error_t dc1394_feature_whitebalance_get_value(dc1394camera_t *, uint32_t *, uint32_t *) nogil
 
     dc1394error_t dc1394_convert_to_RGB8(uint8_t *, uint8_t *, uint32_t, uint32_t, uint32_t, dc1394color_coding_t, uint32_t) nogil
 
