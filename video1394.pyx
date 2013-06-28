@@ -331,10 +331,50 @@ cdef class DC1394Camera(object):
         return self.available_features_string
 
     def get_property(self, name):
-        return self._set_get_property(name)
+        cdef uint32_t ret_value
+        feature = self.available_features_string.get(name, None)
+        if not feature:
+            raise DC1394Error("[%s] not available" % name)
+        id = feature["id"]
+        dc1394_feature_get_value(self.cam, id, &ret_value)
+        return ret_value
+
+    def get_property_is_auto(self, name):
+        cdef dc1394feature_mode_t value
+        feature = self.available_features_string.get(name, None)
+        if not feature:
+            raise DC1394Error("[%s] not available" % name)
+        id = feature["id"]
+        dc1394_feature_get_mode(self.cam, id, &value)
+        return value == DC1394_FEATURE_MODE_AUTO
 
     def set_property(self, name, value):
-        self._set_get_property(name, value=value)
+        feature = self.available_features_string.get(name, None)
+        if not feature:
+            raise DC1394Error("[%s] not available" % name)
+        id = feature["id"]
+
+        # set section
+        DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_MANUAL))
+
+        if id == DC1394_FEATURE_WHITE_BALANCE:
+            raise DC1394Error("[%s] cannot change value of white balance. Use set_whitebalance" % name)
+
+        if value < feature['min'] or value > feature['max']:
+            raise DC1394Error("[%s] value out of range" % name)
+
+        DC1394SafeCall(dc1394_feature_set_value(self.cam, id, value))
+
+    def set_property_auto(self, name, value):
+        feature = self.available_features_string.get(name, None)
+        if not feature:
+            raise DC1394Error("[%s] not available" % name)
+        id = feature["id"]
+
+        if value:
+            DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_AUTO))
+        else:
+            DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_MANUAL))
 
     def set_whitebalance(self, RV_value=None, BU_value=None):
         cdef uint32_t actual_rv_value
@@ -363,37 +403,6 @@ cdef class DC1394Camera(object):
             BU_value = actual_bu_value
 
         DC1394SafeCall(dc1394_feature_whitebalance_set_value(self.cam, BU_value, RV_value))
-
-    def _set_get_property(self, name, value=None):
-        cdef uint32_t ret_value
-        feature = self.available_features_string.get(name, None)
-        if not feature:
-            raise DC1394Error("[%s] not available" % name)
-        id = feature["id"]
-        # try get section, if no value
-        if value is None:
-            dc1394_feature_get_value(self.cam, id, &ret_value)
-            return ret_value
-
-        # set section
-        #has_auto = hasFeatureMode(id, DC1394_FEATURE_MODE_AUTO)
-        has_auto = True
-        if value == -1:
-            # try to set auto
-            if not has_auto:
-                raise DC1394Error("[%s] hasn't feature auto. Value -1 is to active auto option." % name)
-            DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_AUTO))
-        else:
-            if has_auto:
-                DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_MANUAL))
-
-            if id == DC1394_FEATURE_WHITE_BALANCE:
-                return
-                #raise DC1394Error("[%s] cannot change value of white balance. Use set_whitebalance" % name)
-
-            if value < feature['min'] or value > feature['max']:
-                raise DC1394Error("[%s] value out of range" % name)
-            DC1394SafeCall(dc1394_feature_set_value(self.cam, id, value))
 
     property initEvent:
         def __get__(self):
