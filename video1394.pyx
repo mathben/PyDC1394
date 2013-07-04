@@ -10,6 +10,7 @@ cimport numpy as np
 
 import select
 
+import time
 
 cdef dict color_coding = {
                            DC1394_COLOR_CODING_MONO8      : "MONO8",
@@ -112,7 +113,7 @@ cdef inline int DC1394SafeCall(dc1394error_t error) except -1:
     cdef int return_value = 0
     if DC1394_SUCCESS != error:
         errstr = dc1394_error_get_string(error)
-        raise DC1394Error(errstr)
+        raise DC1394Error("%s - no %d" % (errstr, error))
     return return_value
 
 
@@ -182,7 +183,13 @@ cdef class DC1394Context(object):
                 return None
         if not camdesc:
             camdesc = enumCam[cid]
-        return DC1394Camera(self, camdesc['guid'], unit = camdesc['unit'])
+        cam = None
+        try:
+            cam = DC1394Camera(self, camdesc['guid'], unit = camdesc['unit'])
+        except Exception as e:
+            print("Error: %s" % e)
+            print("The list of camera %s" % self.enumerateCameras())
+        return cam
 
 
 cdef class DC1394Camera(object):
@@ -201,7 +208,8 @@ cdef class DC1394Camera(object):
     cdef dict available_features_string
 
     def __dealloc__(self):
-        dc1394_camera_free(self.cam)
+        if self.cam:
+            dc1394_camera_free(self.cam)
 
     def __cinit__(self, DC1394Context ctx, uint64_t guid, int unit = -1):
         self.ctx = ctx
@@ -209,6 +217,8 @@ cdef class DC1394Camera(object):
             self.cam = dc1394_camera_new_unit(ctx.dc1394, guid, unit)
         else:
             self.cam = dc1394_camera_new(ctx.dc1394, guid);
+        if not self.cam:
+            raise DC1394Error("No camera detected, guid %d." % guid)
 
         try:
             self.operationMode = DC1394_OPERATION_MODE_1394B
@@ -253,14 +263,17 @@ cdef class DC1394Camera(object):
         cdef np.ndarray[np.uint8_t, ndim=3, mode="c"] arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
         cdef object nparr = arr
         cdef char *orig_ptr = arr.data
-        # change me mister hardcode :(
-        cdef uint8_t pixel_convert[480000 * 3] #frame.size[1]*frame.size[0]*dtype.itemsize
+        #cdef uint8_t jo = frame.size[0] * frame.size[1] * dtype.itemsize
+        # TODO do a malloc and be dynamic
+        # 600 * 800 * 3
+        cdef uint8_t pixel_convert[480000*3]
         cdef np.dtype orig_dtype = arr.dtype
         arr.dtype = dtype
         nparr.shape = (frame.size[1], frame.size[0])
 
         selectlist = [self.fileno]
         while not self.stop_event:
+            #TODO find a mechanism to use only one select for multiple camera
             rlist, wlist, xlist = select.select(selectlist, [], [], 1)
             if len(rlist) == 0:
                 continue
