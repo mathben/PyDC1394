@@ -65,7 +65,8 @@ class Event(object):
         """
         This method remove an observer for the event.
         """
-        del self.observers[oid]
+        if oid in self.observers.keys():
+            del self.observers[oid]
 
     def dispatch(self, *args):
         """

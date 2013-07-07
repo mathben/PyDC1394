@@ -5,4 +5,8 @@ small Cython dc1394 code snippet.
 
 INSTALL
 -------
-Dependance : cython
+Dependance : cython 0.19
+
+COMPILE
+-------
+make

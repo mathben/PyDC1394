@@ -66,6 +66,9 @@ ISO_SPEED_800		= DC1394_ISO_SPEED_800
 ISO_SPEED_1600		= DC1394_ISO_SPEED_1600
 ISO_SPEED_3200		= DC1394_ISO_SPEED_3200
 
+OPERATION_MODE_LEGACY = DC1394_OPERATION_MODE_LEGACY
+OPERATION_MODE_1394B = DC1394_OPERATION_MODE_1394B
+
 cdef list DC1394ISOSpeedTable = [
                         DC1394_ISO_SPEED_100,
                         DC1394_ISO_SPEED_200,
@@ -108,12 +111,14 @@ cdef dict DC1394NumpyColorCoding2 = {
 class DC1394Error(Exception): pass
 
 
-cdef inline int DC1394SafeCall(dc1394error_t error) except -1:
+cdef inline bint DC1394SafeCall(dc1394error_t error, bint raise_event=True) except -1:
     cdef const_char_ptr errstr
-    cdef int return_value = 0
+    cdef bint return_value = True
     if DC1394_SUCCESS != error:
         errstr = dc1394_error_get_string(error)
-        raise DC1394Error("%s - no %d" % (errstr, error))
+        if raise_event:
+            raise DC1394Error("%s - no %d" % (errstr, error))
+        return_value = False
     return return_value
 
 
@@ -220,13 +225,6 @@ cdef class DC1394Camera(object):
         if not self.cam:
             raise DC1394Error("No camera detected, guid %d." % guid)
 
-        try:
-            self.operationMode = DC1394_OPERATION_MODE_1394B
-            self.isoSpeed = DC1394_ISO_SPEED_800
-        except DC1394Error, e:
-            self.operationMode = DC1394_OPERATION_MODE_LEGACY
-            self.isoSpeed = DC1394_ISO_SPEED_400
-
         self.populate_capabilities()
 
         self.force_rgb8 = False
@@ -235,6 +233,29 @@ cdef class DC1394Camera(object):
         self.__grab_event__ = events.Event()
         self.__init_event__ = events.Event()
         self.__stop_event__ = events.Event()
+
+    def initialize(self, reset_bus=True, mode=None, framerate=None, iso_speed=None,
+              operation_mode=None):
+        # TODO need to set ISO Channel ?
+        # initialize the camera
+        self.transmission = DC1394_OFF
+        if reset_bus:
+            self.resetBus()
+        if operation_mode is not None:
+            self.operationMode = operation_mode
+        else:
+            try:
+                self.operationMode = DC1394_OPERATION_MODE_1394B
+                self.isoSpeed = DC1394_ISO_SPEED_800
+            except:
+                self.operationMode = DC1394_OPERATION_MODE_LEGACY
+                self.isoSpeed = DC1394_ISO_SPEED_400
+        if iso_speed is not None:
+            self.isoSpeed = iso_speed
+        if framerate is not None:
+            self.framerate = framerate
+        if mode is not None:
+            self.mode = mode
 
     def start(self, force_rgb8=False):
         if (self.running):
@@ -278,9 +299,8 @@ cdef class DC1394Camera(object):
             if len(rlist) == 0:
                 continue
 
-            err = dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, &frame)
-            if err != DC1394_SUCCESS:
-                continue
+            if not DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, &frame), raise_event=False):
+                break
 
             if self.force_rgb8 and frame.color_coding == DC1394_COLOR_CODING_YUV422:
                 dc1394_convert_to_RGB8(frame.image, pixel_convert, frame.size[1], frame.size[0], DC1394_BYTE_ORDER_UYVY, DC1394_COLOR_CODING_YUV422, 8);
@@ -293,17 +313,22 @@ cdef class DC1394Camera(object):
         arr.data = orig_ptr
         arr.dtype = orig_dtype
 
-        self.transmission = DC1394_OFF
-        DC1394SafeCall(dc1394_capture_stop(self.cam))
+        try:
+            self.transmission = DC1394_OFF
+            DC1394SafeCall(dc1394_capture_stop(self.cam))
+        except:
+            # ignore error, if camera crash, just stop the event
+            pass
         self.running = False
         self.__stop_event__()
 
     def stop(self, join = True):
+        self.power = False
+        if self.stop_event:
+            return
         self.stop_event = True
         if join:
             self.capture_loop.join()
-        self.power = False
-
 
     cdef void populate_capabilities(self):
         cdef dc1394video_modes_t modes
@@ -417,13 +442,6 @@ cdef class DC1394Camera(object):
 
         DC1394SafeCall(dc1394_feature_whitebalance_set_value(self.cam, BU_value, RV_value))
 
-    property initEvent:
-        def __get__(self):
-            return self.__init_event__
-
-    property stopEvent:
-        def __get__(self):
-            return self.__stop_event__
 
 
     property fileno:
@@ -447,6 +465,13 @@ cdef class DC1394Camera(object):
         def __get__(self):
             return self.__grab_event__
 
+    property initEvent:
+        def __get__(self):
+            return self.__init_event__
+
+    property stopEvent:
+        def __get__(self):
+            return self.__stop_event__
     # -------------------------------------------------------------------------
     property bandwitdh:
         def __get__(self):
