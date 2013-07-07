@@ -268,7 +268,11 @@ cdef class DC1394Camera(object):
 
     def run(self):
         self.__init_event__()
-        DC1394SafeCall(dc1394_capture_setup(self.cam, 10, DC1394_CAPTURE_FLAGS_DEFAULT))
+        self.transmission = DC1394_OFF
+        #Comments from cc1394Setup : Capture - We currently allocate the channel and not
+        #               the iso bandwidth. Program crashes may leave a channel occupied.
+        num_buffer = 10
+        DC1394SafeCall(dc1394_capture_setup(self.cam, num_buffer, DC1394_CAPTURE_FLAGS_CHANNEL_ALLOC))
         self.transmission = DC1394_ON
         self.running = True
         cdef dc1394video_frame_t * frame
