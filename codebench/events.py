@@ -56,7 +56,7 @@ class Event(object):
 
         obj = observer
         if self.wref:
-            obj = wref.WeakBoundMethod(obj) if isinstance(obj,new.instancemethod) else weakref.ref(obj)
+            obj = wref.WeakBoundMethod(obj) if isinstance(obj, new.instancemethod) else weakref.ref(obj)
 
         self.observers[oid] = (obj, args)
         return oid
@@ -126,14 +126,14 @@ class EventDispatcherBase(object):
                 setattr(self, evt_name + "Event", evt)
                 evt.name = evt_name
 
-    def addObserver(self, obj, *args,  **kw):
+    def addObserver(self, obj, *args, **kw):
         """
         Add the right method observer to the contained event
         """
         oid = self.uid_gen.next() if "oid" not in kw else kw.pop("oid")
         for evt in self.events:
             try:
-                getattr(self, evt + "Event").addObserver(getattr(obj, evt), *args, oid = oid)
+                getattr(self, evt + "Event").addObserver(getattr(obj, evt), *args, oid=oid)
             except AttributeError, err:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning("Object : %s do not have attribute -- %s --" % \
@@ -163,7 +163,7 @@ class EventDispatcherBase(object):
 
 
 class MutexedEvent(Event):
-        def __init__(self, mutex = None):
+        def __init__(self, mutex=None):
                 Event.__init__(self)
                 self.mutex = threading.Lock() if mutex is None else mutex
 
