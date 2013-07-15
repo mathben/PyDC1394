@@ -1,5 +1,8 @@
 import threading
 import sys
+import select
+import thread
+import time
 
 from dc1394 cimport *
 
@@ -7,10 +10,7 @@ import codebench.events as events
 
 import numpy as np
 cimport numpy as np
-
-import select
-
-import time
+from cpython cimport Py_INCREF, Py_DECREF
 
 cdef dict color_coding = {
                            DC1394_COLOR_CODING_MONO8      : "MONO8",
@@ -162,7 +162,6 @@ cdef class DC1394Context(object):
 
     numberOfDevices = property(__get_number_of_devices__)
 
-
     cpdef list enumerateCameras(self):
         cdef dc1394camera_list_t * camera_lst
         cdef list return_value
@@ -196,6 +195,71 @@ cdef class DC1394Context(object):
             print("The list of camera %s" % self.enumerateCameras())
         return cam
 
+class DC1394CameraServer(object):
+    _instance = None
+
+    def __new__(cls):
+        # Singleton
+        if not cls._instance:
+            # private variable
+            cls.dct_camera = {}
+            cls.select_list = {}
+            cls.thread_select = None
+            cls.in_execution = False
+
+            # instance class
+            cls._instance = super(DC1394CameraServer, cls).__new__(cls)
+        return cls._instance
+
+    def add_camera(self, camera):
+        if camera in self.dct_camera:
+            return False
+        fileno = camera.fileno
+        self.dct_camera[camera] = fileno
+        self.select_list[fileno] = camera
+        if not self.in_execution:
+            self.in_execution = True
+            thread.start_new_thread(self._execution, ())
+        return True
+
+    def remove_camera(self, camera):
+        if camera not in self.dct_camera:
+            return False
+        fileno = self.dct_camera[camera]
+        del self.dct_camera[camera]
+        del self.select_list[fileno]
+        if not self.select_list:
+            self.in_execution = False
+
+        return True
+
+    def _execution(self):
+        begin_time = time.time()
+        # TODO use semaphore to stop or start the execution
+        while self.in_execution:
+            # timeout of 1 second. Not normal to don't receive 1 frame after 1 second.
+            rlist, wlist, xlist = select.select(self.select_list, [], [], 1)
+            for fileno in rlist:
+                if fileno in self.select_list:
+                    camera = self.select_list[fileno]
+                    camera.capture_image()
+                else:
+                    print("error from camera server video1394 select on file id %s" % fileno)
+            """
+            actual_time = time.time()
+            if not rlist:
+                print("list of fileno is empty")
+            if actual_time - begin_time > 1.5:
+                begin_time = actual_time
+                print("Timeout select camera.")
+            for key, value in self.select_list.items():
+                actual_fileno = value.fileno
+                if key != actual_fileno:
+                    print("The fileno of camera %s has change. %s to %s." % (value, key, actual_fileno))
+            """
+
+    def close(self):
+        self.in_execution = False
 
 cdef class DC1394Camera(object):
     cdef dc1394camera_t * cam
@@ -208,16 +272,22 @@ cdef class DC1394Camera(object):
     cdef object __init_event__
     cdef object __stop_event__
     cdef object capture_loop
+    cdef object cam_server
     cdef dict available_features
     cdef dict unavailable_features
     cdef dict available_features_string
+    cdef uint8_t pixel_convert[480000 * 3]
+    cdef np.ndarray arr
 
     def __dealloc__(self):
+        if self.transmission == DC1394_ON:
+            self.transmission = DC1394_OFF
         if self.cam:
             dc1394_camera_free(self.cam)
 
     def __cinit__(self, DC1394Context ctx, uint64_t guid, int unit= -1):
         self.ctx = ctx
+        self.cam_server = DC1394CameraServer()
         if unit != -1:
             self.cam = dc1394_camera_new_unit(ctx.dc1394, guid, unit)
         else:
@@ -236,7 +306,6 @@ cdef class DC1394Camera(object):
 
     def initialize(self, reset_bus=True, mode=None, framerate=None, iso_speed=None,
               operation_mode=None):
-        # TODO need to set ISO Channel ?
         # initialize the camera
         self.transmission = DC1394_OFF
         if reset_bus:
@@ -258,81 +327,65 @@ cdef class DC1394Camera(object):
             self.mode = mode
 
     def start(self, force_rgb8=False):
+        cdef dc1394video_frame_t * frame
+
         if (self.running):
             raise RuntimeError("Camera Already Running")
         self.force_rgb8 = force_rgb8
-        self.power = True
         self.stop_event = False
-        self.capture_loop = threading.Thread(target=self.run, name="DC1394 capture loop")
-        self.capture_loop.start()
 
-    def run(self):
         self.__init_event__()
         self.transmission = DC1394_OFF
-        #Comments from cc1394Setup : Capture - We currently allocate the channel and not
+        # Comments from cc1394Setup : Capture - We currently allocate the channel and not
         #               the iso bandwidth. Program crashes may leave a channel occupied.
         num_buffer = 10
         DC1394SafeCall(dc1394_capture_setup(self.cam, num_buffer, DC1394_CAPTURE_FLAGS_CHANNEL_ALLOC))
         self.transmission = DC1394_ON
-        self.running = True
-        cdef dc1394video_frame_t * frame
-        cdef dc1394error_t err
 
         dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_WAIT, & frame)
         if self.force_rgb8:
-            dtype2 = DC1394NumpyColorCoding[frame.color_coding]
             dtype = DC1394NumpyColorCoding[DC1394_COLOR_CODING_RGB8]
         else:
             dtype = DC1394NumpyColorCoding[frame.color_coding]
+        self.arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
+        self.arr.dtype = dtype
+        Py_INCREF(dtype)
 
-        cdef np.ndarray[np.uint8_t, ndim = 3, mode = "c"] arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
-        cdef object nparr = arr
-        cdef char * orig_ptr = arr.data
+        self.cam_server.add_camera(self)
+        self.running = True
+
+    def capture_image(self):
+        cdef dc1394video_frame_t * frame
+        if not DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, & frame), raise_event=False):
+            return
+
+        self.format_image(frame)
+
+        self.__grab_event__(self.arr, frame.timestamp)
+
+        dc1394_capture_enqueue(self.cam, frame)
+
+    cdef void format_image(self, dc1394video_frame_t * frame):
         # cdef uint8_t jo = frame.size[0] * frame.size[1] * dtype.itemsize
         # TODO do a malloc and be dynamic
         # 600 * 800 * 3
-        cdef uint8_t pixel_convert[480000 * 3]
-        cdef np.dtype orig_dtype = arr.dtype
-        arr.dtype = dtype
-        nparr.shape = (frame.size[1], frame.size[0])
+        if self.force_rgb8 and frame.color_coding == DC1394_COLOR_CODING_YUV422:
+            dc1394_convert_to_RGB8(frame.image, self.pixel_convert, frame.size[1], frame.size[0], DC1394_BYTE_ORDER_UYVY, DC1394_COLOR_CODING_YUV422, 8);
+            self.arr.data = < char *> self.pixel_convert
+            return
 
-        selectlist = [self.fileno]
-        while not self.stop_event:
-            # TODO find a mechanism to use only one select for multiple camera
-            rlist, wlist, xlist = select.select(selectlist, [], [], 1)
-            if len(rlist) == 0:
-                continue
+        self.arr.data = < char *> frame.image
 
-            if not DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, & frame), raise_event=False):
-                break
-
-            if self.force_rgb8 and frame.color_coding == DC1394_COLOR_CODING_YUV422:
-                dc1394_convert_to_RGB8(frame.image, pixel_convert, frame.size[1], frame.size[0], DC1394_BYTE_ORDER_UYVY, DC1394_COLOR_CODING_YUV422, 8);
-                arr.data = < char *> pixel_convert;
-            else:
-                arr.data = < char *> frame.image
-            self.__grab_event__(arr, frame.timestamp)
-            dc1394_capture_enqueue(self.cam, frame)
-
-        arr.data = orig_ptr
-        arr.dtype = orig_dtype
-
+    def stop(self):
         try:
-            self.transmission = DC1394_OFF
             DC1394SafeCall(dc1394_capture_stop(self.cam))
+            self.transmission = DC1394_OFF
         except:
             # ignore error, if camera crash, just stop the event
             pass
+        self.cam_server.remove_camera(self)
         self.running = False
         self.__stop_event__()
-
-    def stop(self, join=True):
-        self.power = False
-        if self.stop_event:
-            return
-        self.stop_event = True
-        if join:
-            self.capture_loop.join()
 
     cdef void populate_capabilities(self):
         cdef dc1394video_modes_t modes
@@ -445,7 +498,6 @@ cdef class DC1394Camera(object):
             BU_value = actual_bu_value
 
         DC1394SafeCall(dc1394_feature_whitebalance_set_value(self.cam, BU_value, RV_value))
-
 
 
     property fileno:

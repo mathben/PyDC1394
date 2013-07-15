@@ -319,7 +319,7 @@ cdef extern from "dc1394/dc1394.h":
         dc1394color_coding_t     color_coding
         dc1394color_filter_t     color_filter
         uint32_t                 yuv_byte_order
-        uint32_t                 data_depth
+        uint32_t                 bit_depth
         uint32_t                 stride
         dc1394video_mode_t       video_mode
         uint64_t                 total_bytes
