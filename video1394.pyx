@@ -245,10 +245,13 @@ class DC1394CameraServer(object):
                     camera.capture_image()
                 else:
                     print("error from camera server video1394 select on file id %s" % fileno)
+            if not rlist:
+                if self.dct_camera:
+                    lst_cam = self.dct_camera.keys()[:]
+                    for camera in lst_cam:
+                        camera.stop()
             """
             actual_time = time.time()
-            if not rlist:
-                print("list of fileno is empty")
             if actual_time - begin_time > 1.5:
                 begin_time = actual_time
                 print("Timeout select camera.")
@@ -334,7 +337,6 @@ cdef class DC1394Camera(object):
         self.force_rgb8 = force_rgb8
         self.stop_event = False
 
-        self.__init_event__()
         self.transmission = DC1394_OFF
         # Comments from cc1394Setup : Capture - We currently allocate the channel and not
         #               the iso bandwidth. Program crashes may leave a channel occupied.
@@ -349,14 +351,17 @@ cdef class DC1394Camera(object):
             dtype = DC1394NumpyColorCoding[frame.color_coding]
         self.arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
         self.arr.dtype = dtype
-        Py_INCREF(dtype)
 
         self.cam_server.add_camera(self)
+        self.__init_event__()
         self.running = True
 
     def capture_image(self):
         cdef dc1394video_frame_t * frame
         if not DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, & frame), raise_event=False):
+            return
+
+        if not frame:
             return
 
         self.format_image(frame)
@@ -377,13 +382,13 @@ cdef class DC1394Camera(object):
         self.arr.data = < char *> frame.image
 
     def stop(self):
+        self.cam_server.remove_camera(self)
         try:
             DC1394SafeCall(dc1394_capture_stop(self.cam))
             self.transmission = DC1394_OFF
         except:
             # ignore error, if camera crash, just stop the event
             pass
-        self.cam_server.remove_camera(self)
         self.running = False
         self.__stop_event__()
 
