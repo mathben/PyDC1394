@@ -239,9 +239,14 @@ class DC1394CameraServer(object):
         while self.in_execution:
             # timeout of 1 second. Not normal to don't receive 1 frame after 1 second.
             rlist, wlist, xlist = select.select(self.select_list, [], [], 1)
+            if not self.in_execution:
+                # Maybe the server is close after the select
+                return
+
             for fileno in rlist:
                 if fileno in self.select_list:
                     camera = self.select_list[fileno]
+                    # threading the capture
                     camera.capture_image()
                 else:
                     print("error from camera server video1394 select on file id %s" % fileno)
@@ -279,6 +284,7 @@ cdef class DC1394Camera(object):
     cdef dict available_features
     cdef dict unavailable_features
     cdef dict available_features_string
+    # TODO be dynamic buffer about pixel conversion
     cdef uint8_t pixel_convert[480000 * 3]
     cdef np.ndarray arr
 
@@ -328,6 +334,7 @@ cdef class DC1394Camera(object):
             self.framerate = framerate
         if mode is not None:
             self.mode = mode
+        return True
 
     def start(self, force_rgb8=False):
         cdef dc1394video_frame_t * frame
@@ -382,6 +389,7 @@ cdef class DC1394Camera(object):
         self.arr.data = < char *> frame.image
 
     def stop(self):
+        self.running = False
         self.cam_server.remove_camera(self)
         try:
             DC1394SafeCall(dc1394_capture_stop(self.cam))
@@ -389,7 +397,6 @@ cdef class DC1394Camera(object):
         except:
             # ignore error, if camera crash, just stop the event
             pass
-        self.running = False
         self.__stop_event__()
 
     cdef void populate_capabilities(self):
