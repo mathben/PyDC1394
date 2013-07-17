@@ -8,7 +8,7 @@ import wref
 
 import generator
 
-logger = logging.getLogger(__name__)
+#logger = logging.getLogger(__name__)
 
 
 class EventSupervisor(object):
@@ -51,8 +51,10 @@ class Event(object):
 
         oid = self.uid_gen.next() if "oid" not in kwarg else kwarg.pop("oid")
         if oid in self.observers:
-            if logger.isEnabledFor(logger.WARNING):
-                logger.warning("Observer ID collision detected [%s]" % str(oid))
+            #if logger.isEnabledFor(logger.WARNING):
+            #    logger.warning("Observer ID collision detected [%s]" % str(oid))
+            print("Observer ID collision detected [%s]" % str(oid))
+            return oid
 
         obj = observer
         if self.wref:
@@ -83,13 +85,15 @@ class Event(object):
                         if callback is not None:
                             callback(*(args + cargs))
                         else:
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug("Observer event deleted id [%d]" % oid)
+                            #if logger.isEnabledFor(logging.DEBUG):
+                            #    logger.debug("Observer event deleted id [%d]" % oid)
+                            print("Observer event deleted id [%d]" % oid)
                             del self.observers[oid]
                     else:
                         callback(*(args + cargs))
                 except Exception, e:
-                    logger.exception(str(e))
+                    print("Error is %s" % str(e))
+                    #logger.exception("The error is %s" % str(e))
 
     __call__ = dispatch
 
@@ -120,7 +124,8 @@ class EventDispatcherBase(object):
         self.uid_gen = generator.uid_generator()
         for evt_name in self.events:
             if hasattr(self, evt_name + "Event"):
-                    logger.warning("Event Function Override -- %s --" % evt_name)
+                    print("Event Function Override -- %s --" % evt_name)
+                    #logger.warning("Event Function Override -- %s --" % evt_name)
             else:
                 evt = self.event_type(**kw)
                 setattr(self, evt_name + "Event", evt)
@@ -135,9 +140,9 @@ class EventDispatcherBase(object):
             try:
                 getattr(self, evt + "Event").addObserver(getattr(obj, evt), *args, oid=oid)
             except AttributeError, err:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Object : %s do not have attribute -- %s --" % \
-                               (repr(obj), evt))
+                #if logger.isEnabledFor(logging.WARNING):
+                #    logger.warning("Object : %s do not have attribute -- %s --" % (repr(obj), evt))
+                print("Object : %s do not have attribute -- %s --" % (repr(obj), evt))
         return oid
 
     def removeObserver(self, oid):
