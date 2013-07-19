@@ -281,6 +281,7 @@ cdef class DC1394Camera(object):
     cdef object __stop_event__
     cdef object capture_loop
     cdef object cam_server
+    cdef object sem_capture
     cdef dict available_features
     cdef dict unavailable_features
     cdef dict available_features_string
@@ -309,6 +310,7 @@ cdef class DC1394Camera(object):
         self.force_rgb8 = False
         self.running = False
         self.stop_event = False
+        self.sem_capture = threading.Semaphore()
         self.__grab_event__ = events.Event()
         self.__init_event__ = events.Event()
         self.__stop_event__ = events.Event()
@@ -365,30 +367,46 @@ cdef class DC1394Camera(object):
 
     def capture_image(self):
         cdef dc1394video_frame_t * frame
-        if not DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, & frame), raise_event=False):
+        if not self.running:
+            return
+        status = self.sem_capture.acquire(False)
+        if not status:
+            print("DEBUG: drop the capture_image, another execution already use it")
             return
 
+        if not DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, & frame), raise_event=False):
+            return
         if not frame:
             return
 
+        if dc1394_capture_is_frame_corrupt(self.cam, frame) == DC1394_TRUE:
+            print("Debug: frame is corrupt on camera.")
+            return
+
         self.format_image(frame)
-
         self.__grab_event__(self.arr, frame.timestamp)
-
         dc1394_capture_enqueue(self.cam, frame)
+
+        self.sem_capture.release()
 
     cdef void format_image(self, dc1394video_frame_t * frame):
         # cdef uint8_t jo = frame.size[0] * frame.size[1] * dtype.itemsize
         # TODO do a malloc and be dynamic
         # 600 * 800 * 3
         if self.force_rgb8 and frame.color_coding == DC1394_COLOR_CODING_YUV422:
-            dc1394_convert_to_RGB8(frame.image, self.pixel_convert, frame.size[1], frame.size[0], DC1394_BYTE_ORDER_UYVY, DC1394_COLOR_CODING_YUV422, 8);
+            dc1394_convert_to_RGB8(frame.image, self.pixel_convert, frame.size[1], frame.size[0],
+                                   DC1394_BYTE_ORDER_UYVY, DC1394_COLOR_CODING_YUV422, 8);
             self.arr.data = < char *> self.pixel_convert
             return
 
         self.arr.data = < char *> frame.image
 
     def stop(self):
+        # capture semaphore blocking
+        status = self.sem_capture.acquire()
+        if not status:
+            print("DEBUG: what??? It's not possible case, but acquire blocking semaphore return true in stop().")
+            return
         self.running = False
         self.cam_server.remove_camera(self)
         try:
@@ -398,6 +416,7 @@ cdef class DC1394Camera(object):
             # ignore error, if camera crash, just stop the event
             pass
         self.__stop_event__()
+        self.sem_capture.release()
 
     cdef void populate_capabilities(self):
         cdef dc1394video_modes_t modes
