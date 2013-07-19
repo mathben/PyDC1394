@@ -238,7 +238,11 @@ class DC1394CameraServer(object):
         # TODO use semaphore to stop or start the execution
         while self.in_execution:
             # timeout of 1 second. Not normal to don't receive 1 frame after 1 second.
-            rlist, wlist, xlist = select.select(self.select_list, [], [], 1)
+            try:
+                rlist, wlist, xlist = select.select(self.select_list, [], [], 1)
+            except:
+                # ignore if Bad file descriptor (camera was removed)
+                return
             if not self.in_execution:
                 # Maybe the server is close after the select
                 return
