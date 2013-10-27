@@ -1,11 +1,11 @@
 pyvideo1394
 ===========
-
-small Cython dc1394 code snippet.
+Small Cython dc1394 code snippet.
 
 INSTALL
 -------
 Dependance : cython 0.19
+http://docs.cython.org/src/quickstart/install.html
 
 COMPILE
 -------
