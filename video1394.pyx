@@ -376,15 +376,19 @@ cdef class DC1394Camera(object):
         status = self.sem_capture.acquire(False)
         if not status:
             print("DEBUG: drop the capture_image, another execution already use it")
+            self.sem_capture.release()
             return
 
         if not DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, & frame), raise_event=False):
+            self.sem_capture.release()
             return
         if not frame:
+            self.sem_capture.release()
             return
 
         if dc1394_capture_is_frame_corrupt(self.cam, frame) == DC1394_TRUE:
             print("Debug: frame is corrupt on camera.")
+            self.sem_capture.release()
             return
 
         self.format_image(frame)
@@ -410,6 +414,7 @@ cdef class DC1394Camera(object):
         status = self.sem_capture.acquire()
         if not status:
             print("DEBUG: what??? It's not possible case, but acquire blocking semaphore return true in stop().")
+            self.sem_capture.release()
             return
         self.running = False
         self.cam_server.remove_camera(self)
