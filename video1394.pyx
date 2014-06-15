@@ -195,37 +195,6 @@ cdef class DC1394Context(object):
             print("The list of camera %s" % self.enumerateCameras())
         return cam
 
-cdef class DC1394CameraThread(DC1394Camera):
-    cdef object __grab_event__
-    cdef object __init_event__
-    cdef object __stop_event__
-    cdef object capture_loop
-
-    def __cinit__(self, DC1394Context ctx, uint64_t guid, int unit = -1):
-        self.stop_event = False
-        self.__grab_event__ = events.Event()
-        self.__init_event__ = events.Event()
-        self.__stop_event__ = events.Event()
-
-    def start(self):
-        self.capture_loop = threading.Thread(target = self.run, name = "DC1394 capture loop")
-        self.capture_loop.start()
-
-    property grabEvent:
-        def __get__(self):
-            return self.__grab_event__
-
-    def run(self):
-        gen = self.setup()
-        for f in self.setup():
-            self.__grab_event__(*f)
-
-    def stop(self, join = True):
-        self.stop_event = True
-        if join:
-            self.capture_loop.join()
-        self.power = False
-
 
 cdef class DC1394Camera(object):
     cdef dc1394camera_t * cam
@@ -255,7 +224,6 @@ cdef class DC1394Camera(object):
 
     def __cinit__(self, DC1394Context ctx, uint64_t guid, int unit= -1):
         self.ctx = ctx
-        self.cam_server = DC1394CameraServer()
         if unit != -1:
             self.cam = dc1394_camera_new_unit(ctx.dc1394, guid, unit)
         else:
@@ -276,9 +244,10 @@ cdef class DC1394Camera(object):
     def initialize(self, reset_bus=True, mode=None, framerate=None, iso_speed=None,
               operation_mode=None):
         # initialize the camera
-        self.transmission = DC1394_OFF
         if reset_bus:
             self.resetBus()
+        self.power = False
+        self.transmission = DC1394_OFF
         if operation_mode is not None:
             self.operationMode = operation_mode
         else:
@@ -298,13 +267,16 @@ cdef class DC1394Camera(object):
 
     def start(self, force_rgb8=False):
         cdef dc1394video_frame_t * frame
+        self.power = False
 
         if (self.running):
             raise RuntimeError("Camera Already Running")
+        self.running = True
         self.force_rgb8 = force_rgb8
         self.stop_event = False
 
         self.transmission = DC1394_OFF
+        self.power = True
         # Comments from cc1394Setup : Capture - We currently allocate the channel and not
         #               the iso bandwidth. Program crashes may leave a channel occupied.
         num_buffer = 10
@@ -319,9 +291,18 @@ cdef class DC1394Camera(object):
         self.arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
         self.arr.dtype = dtype
 
-        self.cam_server.add_camera(self)
+        self.capture_loop = threading.Thread(target = self.run, name = "DC1394 capture loop")
+        self.capture_loop.start()
         self.__init_event__()
-        self.running = True
+
+    def run(self):
+        fileno = self.fileno
+        while self.running:
+            # with timeout of 1 second
+            rlist, wlist, xlist = select.select([fileno], [], [], 1)
+            if not rlist:
+                continue
+            self.capture_image()
 
     def capture_image(self):
         cdef dc1394video_frame_t * frame
@@ -339,6 +320,7 @@ cdef class DC1394Camera(object):
         if not frame:
             self.sem_capture.release()
             return
+
 
         if dc1394_capture_is_frame_corrupt(self.cam, frame) == DC1394_TRUE:
             print("Debug: frame is corrupt on camera.")
@@ -367,11 +349,11 @@ cdef class DC1394Camera(object):
         # capture semaphore blocking
         status = self.sem_capture.acquire()
         if not status:
-            print("DEBUG: what??? It's not possible case, but acquire blocking semaphore return true in stop().")
             self.sem_capture.release()
             return
         self.running = False
-        self.cam_server.remove_camera(self)
+        if self.capture_loop:
+            self.capture_loop.join()
         try:
             DC1394SafeCall(dc1394_capture_stop(self.cam))
             self.transmission = DC1394_OFF
