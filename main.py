@@ -16,6 +16,7 @@ screen = pygame.display.set_mode(size)
 
 i = 0
 
+
 def test(im, timestamp):
     global i
     sys.stderr.write("grab %d %d \r" % (i, timestamp))
@@ -47,6 +48,8 @@ import gobject
 import signal
 gobject.threads_init()
 loop = gobject.MainLoop()
+
+
 def onstop(*args):
     loop.quit()
 
@@ -54,4 +57,3 @@ signal.signal(signal.SIGINT, onstop)
 loop.run()
 print "Stopping Camera"
 camera.stop()
-

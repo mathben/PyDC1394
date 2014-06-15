@@ -190,88 +190,42 @@ cdef class DC1394Context(object):
         cam = None
         try:
             cam = DC1394Camera(self, camdesc['guid'], unit=camdesc['unit'])
-        except Exception as e:
+        except BaseException as e:
             print("Error: %s" % e)
             print("The list of camera %s" % self.enumerateCameras())
         return cam
 
-class DC1394CameraServer(object):
-    _instance = None
+cdef class DC1394CameraThread(DC1394Camera):
+    cdef object __grab_event__
+    cdef object __init_event__
+    cdef object __stop_event__
+    cdef object capture_loop
 
-    def __new__(cls):
-        # Singleton
-        if not cls._instance:
-            # private variable
-            cls.dct_camera = {}
-            cls.select_list = {}
-            cls.thread_select = None
-            cls.in_execution = False
+    def __cinit__(self, DC1394Context ctx, uint64_t guid, int unit = -1):
+        self.stop_event = False
+        self.__grab_event__ = events.Event()
+        self.__init_event__ = events.Event()
+        self.__stop_event__ = events.Event()
 
-            # instance class
-            cls._instance = super(DC1394CameraServer, cls).__new__(cls)
-        return cls._instance
+    def start(self):
+        self.capture_loop = threading.Thread(target = self.run, name = "DC1394 capture loop")
+        self.capture_loop.start()
 
-    def add_camera(self, camera):
-        if camera in self.dct_camera:
-            return False
-        fileno = camera.fileno
-        self.dct_camera[camera] = fileno
-        self.select_list[fileno] = camera
-        if not self.in_execution:
-            self.in_execution = True
-            thread.start_new_thread(self._execution, ())
-        return True
+    property grabEvent:
+        def __get__(self):
+            return self.__grab_event__
 
-    def remove_camera(self, camera):
-        if camera not in self.dct_camera:
-            return False
-        fileno = self.dct_camera[camera]
-        del self.dct_camera[camera]
-        del self.select_list[fileno]
-        if not self.select_list:
-            self.in_execution = False
+    def run(self):
+        gen = self.setup()
+        for f in self.setup():
+            self.__grab_event__(*f)
 
-        return True
+    def stop(self, join = True):
+        self.stop_event = True
+        if join:
+            self.capture_loop.join()
+        self.power = False
 
-    def _execution(self):
-        begin_time = time.time()
-        # TODO use semaphore to stop or start the execution
-        while self.in_execution:
-            # timeout of 1 second. Not normal to don't receive 1 frame after 1 second.
-            try:
-                rlist, wlist, xlist = select.select(self.select_list, [], [], 1)
-            except:
-                # ignore if Bad file descriptor (camera was removed)
-                return
-            if not self.in_execution:
-                # Maybe the server is close after the select
-                return
-
-            for fileno in rlist:
-                if fileno in self.select_list:
-                    camera = self.select_list[fileno]
-                    # threading the capture
-                    camera.capture_image()
-                else:
-                    print("error from camera server video1394 select on file id %s" % fileno)
-            if not rlist:
-                if self.dct_camera:
-                    lst_cam = self.dct_camera.keys()[:]
-                    for camera in lst_cam:
-                        camera.stop()
-            """
-            actual_time = time.time()
-            if actual_time - begin_time > 1.5:
-                begin_time = actual_time
-                print("Timeout select camera.")
-            for key, value in self.select_list.items():
-                actual_fileno = value.fileno
-                if key != actual_fileno:
-                    print("The fileno of camera %s has change. %s to %s." % (value, key, actual_fileno))
-            """
-
-    def close(self):
-        self.in_execution = False
 
 cdef class DC1394Camera(object):
     cdef dc1394camera_t * cam

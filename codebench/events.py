@@ -2,7 +2,12 @@
 #
 # vim: ts=4 sw=4 sts=0 expandtab:
 from __future__ import with_statement
-import os, new, copy, weakref, threading, time
+import os
+import new
+import copy
+import weakref
+import threading
+import time
 import logging
 import wref
 
@@ -12,26 +17,29 @@ import generator
 
 
 class EventSupervisor(object):
-        processing = False
-        triggered = 0
-        def __init__(self):
-            self.creation_time = time.time()
+    processing = False
+    triggered = 0
 
-        def __enter__(self):
-            self.processing = True
-            self.triggered += 1
+    def __init__(self):
+        self.creation_time = time.time()
 
-        def __exit__(self, typ, value, traceback):
-            self.processing = False
+    def __enter__(self):
+        self.processing = True
+        self.triggered += 1
+
+    def __exit__(self, typ, value, traceback):
+        self.processing = False
 
 
 class Event(object):
+
     """
     This is a simple object which represent an event it can be dispatched which
     notifies every observer of this event.  WARNING : The default behavior only 
     keeps weakref so KEEP REFERENCE.
     """
     name = ""
+
     def __init__(self, **kw):
         """
         Init procedure
@@ -51,14 +59,15 @@ class Event(object):
 
         oid = self.uid_gen.next() if "oid" not in kwarg else kwarg.pop("oid")
         if oid in self.observers:
-            #if logger.isEnabledFor(logger.WARNING):
+            # if logger.isEnabledFor(logger.WARNING):
             #    logger.warning("Observer ID collision detected [%s]" % str(oid))
             print("Observer ID collision detected [%s]" % str(oid))
             return oid
 
         obj = observer
         if self.wref:
-            obj = wref.WeakBoundMethod(obj) if isinstance(obj, new.instancemethod) else weakref.ref(obj)
+            obj = wref.WeakBoundMethod(obj) if isinstance(
+                obj, new.instancemethod) else weakref.ref(obj)
 
         self.observers[oid] = (obj, args)
         return oid
@@ -85,7 +94,7 @@ class Event(object):
                         if callback is not None:
                             callback(*(args + cargs))
                         else:
-                            #if logger.isEnabledFor(logging.DEBUG):
+                            # if logger.isEnabledFor(logging.DEBUG):
                             #    logger.debug("Observer event deleted id [%d]" % oid)
                             print("Observer event deleted id [%d]" % oid)
                             del self.observers[oid]
@@ -107,9 +116,8 @@ class Event(object):
         return len(self.observers)
 
 
-
-
 class EventDispatcherBase(object):
+
     """
     This object act as a base object for an aglomerate of events. It provides
     the possibility tp register a single object for every events in the object.
@@ -117,6 +125,7 @@ class EventDispatcherBase(object):
     """
     events = []
     event_type = Event
+
     def __init__(self, **kw):
         """
         Simple Init method which creates the events
@@ -124,8 +133,8 @@ class EventDispatcherBase(object):
         self.uid_gen = generator.uid_generator()
         for evt_name in self.events:
             if hasattr(self, evt_name + "Event"):
-                    print("Event Function Override -- %s --" % evt_name)
-                    #logger.warning("Event Function Override -- %s --" % evt_name)
+                print("Event Function Override -- %s --" % evt_name)
+                #logger.warning("Event Function Override -- %s --" % evt_name)
             else:
                 evt = self.event_type(**kw)
                 setattr(self, evt_name + "Event", evt)
@@ -138,11 +147,13 @@ class EventDispatcherBase(object):
         oid = self.uid_gen.next() if "oid" not in kw else kw.pop("oid")
         for evt in self.events:
             try:
-                getattr(self, evt + "Event").addObserver(getattr(obj, evt), *args, oid=oid)
+                getattr(
+                    self, evt + "Event").addObserver(getattr(obj, evt), *args, oid=oid)
             except AttributeError, err:
-                #if logger.isEnabledFor(logging.WARNING):
+                # if logger.isEnabledFor(logging.WARNING):
                 #    logger.warning("Object : %s do not have attribute -- %s --" % (repr(obj), evt))
-                print("Object : %s do not have attribute -- %s --" % (repr(obj), evt))
+                print("Object : %s do not have attribute -- %s --" %
+                      (repr(obj), evt))
         return oid
 
     def removeObserver(self, oid):
@@ -168,24 +179,24 @@ class EventDispatcherBase(object):
 
 
 class MutexedEvent(Event):
-        def __init__(self, mutex=None):
-                Event.__init__(self)
-                self.mutex = threading.Lock() if mutex is None else mutex
 
-        def dispatch(self, *args):
-                with self.mutex:
-                        Event.dispatch(self, *args)
+    def __init__(self, mutex=None):
+        Event.__init__(self)
+        self.mutex = threading.Lock() if mutex is None else mutex
+
+    def dispatch(self, *args):
+        with self.mutex:
+            Event.dispatch(self, *args)
 
 
 class MutexedEventDispatcher(EventDispatcherBase):
-        event_type = MutexedEvent
-        def __init__(self, *args, **kw):
-            """
-            Simple Init method which creates the events
-            """
-            self.mutex = threading.Lock()
-            if "mutex" not in kw:
-                kw["mutex"] = self.mutex
-            EventDispatcherBase.__init__(self, *args, **kw)
+    event_type = MutexedEvent
 
-
+    def __init__(self, *args, **kw):
+        """
+        Simple Init method which creates the events
+        """
+        self.mutex = threading.Lock()
+        if "mutex" not in kw:
+            kw["mutex"] = self.mutex
+        EventDispatcherBase.__init__(self, *args, **kw)
