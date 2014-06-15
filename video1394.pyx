@@ -265,7 +265,7 @@ cdef class DC1394Camera(object):
             self.mode = mode
         return True
 
-    def start(self, force_rgb8=False):
+    def start(self, force_rgb8=False, flags_dc1394=DC1394_CAPTURE_FLAGS_AUTO_ISO):
         cdef dc1394video_frame_t * frame
         self.power = False
 
@@ -280,7 +280,7 @@ cdef class DC1394Camera(object):
         # Comments from cc1394Setup : Capture - We currently allocate the channel and not
         #               the iso bandwidth. Program crashes may leave a channel occupied.
         num_buffer = 10
-        DC1394SafeCall(dc1394_capture_setup(self.cam, num_buffer, DC1394_CAPTURE_FLAGS_CHANNEL_ALLOC))
+        DC1394SafeCall(dc1394_capture_setup(self.cam, num_buffer, flags_dc1394))
         self.transmission = DC1394_ON
 
         dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_WAIT, & frame)
