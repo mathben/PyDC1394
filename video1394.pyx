@@ -113,13 +113,13 @@ class DC1394Error(Exception): pass
 
 cdef inline bint DC1394SafeCall(dc1394error_t error, bint raise_event=True) except -1:
     cdef const_char_ptr errstr
-    cdef bint return_value = True
+    cdef bint status = True
     if DC1394_SUCCESS != error:
         errstr = dc1394_error_get_string(error)
         if raise_event:
             raise DC1394Error("%s - no %d" % (errstr, error))
-        return_value = False
-    return return_value
+        status = False
+    return status
 
 
 cdef inline dict __dc1394_array_interface__(dc1394video_frame_t * frame):
@@ -215,12 +215,7 @@ cdef class DC1394Camera(object):
     # TODO be dynamic buffer about pixel conversion
     cdef uint8_t pixel_convert[480000 * 3]
     cdef np.ndarray arr
-
-    def __dealloc__(self):
-        if self.transmission == DC1394_ON:
-            self.transmission = DC1394_OFF
-        if self.cam:
-            dc1394_camera_free(self.cam)
+    cdef char *orig_ptr
 
     def __cinit__(self, DC1394Context ctx, uint64_t guid, int unit= -1):
         self.ctx = ctx
@@ -241,13 +236,41 @@ cdef class DC1394Camera(object):
         self.__init_event__ = events.Event()
         self.__stop_event__ = events.Event()
 
-    def initialize(self, reset_bus=True, mode=None, framerate=None, iso_speed=None,
+    def __dealloc__(self):
+        self.arr.data = self.orig_ptr
+        self.arr = None
+
+    def safe_clean(self, free_camera=True):
+        if not self.cam:
+            return True
+        if self.running:
+            self.stop()
+        if free_camera:
+            dc1394_camera_free(self.cam)
+        self.cam = NULL
+
+    def resetBus(self):
+        if self.cam:
+            DC1394SafeCall(dc1394_reset_bus(self.cam));
+
+    def resetToFactoryDefault(self):
+        if self.cam:
+            DC1394SafeCall(dc1394_camera_reset(self.cam))
+
+    def initialize(self, reset_bus=False, mode=None, framerate=None, iso_speed=None,
               operation_mode=None):
         # initialize the camera
+        # reset bus stop all camera!
         if reset_bus:
             self.resetBus()
-        self.power = False
+        self.resetToFactoryDefault()
+        time.sleep(0.25)
+        #DC1394SafeCall(dc1394_capture_stop(self.cam))
+        #time.sleep(0.25)
         self.transmission = DC1394_OFF
+        time.sleep(0.25)
+        DC1394SafeCall(dc1394_iso_release_all(self.cam))
+        time.sleep(0.25)
         if operation_mode is not None:
             self.operationMode = operation_mode
         else:
@@ -265,35 +288,40 @@ cdef class DC1394Camera(object):
             self.mode = mode
         return True
 
-    def start(self, force_rgb8=False, flags_dc1394=DC1394_CAPTURE_FLAGS_AUTO_ISO):
+    def start(self, force_rgb8=False, flags_dc1394=DC1394_CAPTURE_FLAGS_CHANNEL_ALLOC):
         cdef dc1394video_frame_t * frame
-        self.power = False
 
-        if (self.running):
+        if self.running:
             raise RuntimeError("Camera Already Running")
-        self.running = True
-        self.force_rgb8 = force_rgb8
-        self.stop_event = False
+        try:
+            self.running = True
+            self.force_rgb8 = force_rgb8
+            self.stop_event = False
 
-        self.transmission = DC1394_OFF
-        self.power = True
-        # Comments from cc1394Setup : Capture - We currently allocate the channel and not
-        #               the iso bandwidth. Program crashes may leave a channel occupied.
-        num_buffer = 10
-        DC1394SafeCall(dc1394_capture_setup(self.cam, num_buffer, flags_dc1394))
-        self.transmission = DC1394_ON
+            self.transmission = DC1394_OFF
+            # Comments from cc1394Setup : Capture - We currently allocate the channel and not
+            #               the iso bandwidth. Program crashes may leave a channel occupied.
+            num_buffer = 5
+            if not DC1394SafeCall(dc1394_capture_setup(self.cam, num_buffer, flags_dc1394), raise_event=False):
+                DC1394SafeCall(dc1394_iso_release_all(self.cam))
+                time.sleep(1)
+                DC1394SafeCall(dc1394_capture_setup(self.cam, num_buffer, flags_dc1394))
+            self.transmission = DC1394_ON
+            DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_WAIT, & frame))
+            if self.force_rgb8:
+                dtype = DC1394NumpyColorCoding[DC1394_COLOR_CODING_RGB8]
+            else:
+                dtype = DC1394NumpyColorCoding[frame.color_coding]
+            self.arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
+            self.arr.dtype = dtype
+            self.orig_ptr = self.arr.data
 
-        dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_WAIT, & frame)
-        if self.force_rgb8:
-            dtype = DC1394NumpyColorCoding[DC1394_COLOR_CODING_RGB8]
-        else:
-            dtype = DC1394NumpyColorCoding[frame.color_coding]
-        self.arr = np.ndarray(shape=(frame.size[1], frame.size[0], dtype.itemsize) , dtype=np.uint8)
-        self.arr.dtype = dtype
-
-        self.capture_loop = threading.Thread(target = self.run, name = "DC1394 capture loop")
-        self.capture_loop.start()
-        self.__init_event__()
+            self.capture_loop = threading.Thread(target = self.run, name = "DC1394 capture loop")
+            self.capture_loop.start()
+            self.__init_event__()
+        except:
+            self.running = False
+            raise
 
     def run(self):
         fileno = self.fileno
@@ -302,7 +330,8 @@ cdef class DC1394Camera(object):
             rlist, wlist, xlist = select.select([fileno], [], [], 1)
             if not rlist:
                 continue
-            self.capture_image()
+            if self.capture_image() is False:
+                return
 
     def capture_image(self):
         cdef dc1394video_frame_t * frame
@@ -316,7 +345,7 @@ cdef class DC1394Camera(object):
 
         if not DC1394SafeCall(dc1394_capture_dequeue(self.cam, DC1394_CAPTURE_POLICY_POLL, & frame), raise_event=False):
             self.sem_capture.release()
-            return
+            return False
         if not frame:
             self.sem_capture.release()
             return
@@ -329,7 +358,7 @@ cdef class DC1394Camera(object):
 
         self.format_image(frame)
         self.__grab_event__(self.arr, frame.timestamp)
-        dc1394_capture_enqueue(self.cam, frame)
+        DC1394SafeCall(dc1394_capture_enqueue(self.cam, frame))
 
         self.sem_capture.release()
 
@@ -338,30 +367,37 @@ cdef class DC1394Camera(object):
         # TODO do a malloc and be dynamic
         # 600 * 800 * 3
         if self.force_rgb8 and frame.color_coding == DC1394_COLOR_CODING_YUV422:
-            dc1394_convert_to_RGB8(frame.image, self.pixel_convert, frame.size[1], frame.size[0],
-                                   DC1394_BYTE_ORDER_UYVY, DC1394_COLOR_CODING_YUV422, 8);
+            DC1394SafeCall(dc1394_convert_to_RGB8(frame.image, self.pixel_convert, frame.size[1], frame.size[0],
+                           DC1394_BYTE_ORDER_UYVY, DC1394_COLOR_CODING_YUV422, 8));
             self.arr.data = < char *> self.pixel_convert
             return
-
         self.arr.data = < char *> frame.image
 
     def stop(self):
         # capture semaphore blocking
+        self.running = False
         status = self.sem_capture.acquire()
         if not status:
             self.sem_capture.release()
             return
-        self.running = False
         if self.capture_loop:
             self.capture_loop.join()
+            self.capture_loop = None
         try:
-            DC1394SafeCall(dc1394_capture_stop(self.cam))
             self.transmission = DC1394_OFF
+            DC1394SafeCall(dc1394_iso_release_all(self.cam))
+            print("before capture stop")
+            #DC1394SafeCall(dc1394_capture_stop(self.cam))
+            print("after capture stop")
         except:
             # ignore error, if camera crash, just stop the event
             pass
         self.__stop_event__()
         self.sem_capture.release()
+
+    ########################################
+    ## PROPERTY
+    ########################################
 
     cdef void populate_capabilities(self):
         cdef dc1394video_modes_t modes
@@ -407,7 +443,7 @@ cdef class DC1394Camera(object):
         if not feature:
             raise DC1394Error("[%s] not available" % name)
         id = feature["id"]
-        dc1394_feature_get_value(self.cam, id, & ret_value)
+        DC1394SafeCall(dc1394_feature_get_value(self.cam, id, & ret_value))
         return ret_value
 
     def get_property_is_auto(self, name):
@@ -416,7 +452,7 @@ cdef class DC1394Camera(object):
         if not feature:
             raise DC1394Error("[%s] not available" % name)
         id = feature["id"]
-        dc1394_feature_get_mode(self.cam, id, & value)
+        DC1394SafeCall(dc1394_feature_get_mode(self.cam, id, & value))
         return value == DC1394_FEATURE_MODE_AUTO
 
     def set_property(self, name, value):
@@ -459,7 +495,7 @@ cdef class DC1394Camera(object):
             raise DC1394Error("[%s] wrong feature, use set_property" % name)
 
         DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_MANUAL))
-        dc1394_feature_whitebalance_get_value(self.cam, & actual_bu_value, & actual_rv_value)
+        DC1394SafeCall(dc1394_feature_whitebalance_get_value(self.cam, & actual_bu_value, & actual_rv_value))
 
         if RV_value is not None:
             if RV_value < feature['min'] or RV_value > feature['max']:
@@ -530,7 +566,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[brightness] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_BRIGHTNESS, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_BRIGHTNESS, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -553,7 +589,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[exposure] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_EXPOSURE, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_EXPOSURE, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -577,7 +613,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[sharpness] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_SHARPNESS, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_SHARPNESS, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -601,7 +637,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[whiteBalance] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_WHITE_BALANCE, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_WHITE_BALANCE, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -624,7 +660,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[hue] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_HUE, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_HUE, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -648,7 +684,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[saturation] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_SATURATION, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_SATURATION, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -672,7 +708,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[gamma] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_GAMMA, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_GAMMA, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -696,7 +732,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[shutter] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_SHUTTER, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_SHUTTER, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -720,7 +756,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[gain] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_GAIN, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_GAIN, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -744,7 +780,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[iris] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_IRIS, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_IRIS, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -768,7 +804,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[focus] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_FOCUS, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_FOCUS, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -792,7 +828,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[temperature] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_TEMPERATURE, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_TEMPERATURE, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -816,7 +852,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[trigger] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_TRIGGER, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_TRIGGER, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -840,7 +876,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[triggerDelay] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_TRIGGER_DELAY, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_TRIGGER_DELAY, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -864,7 +900,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[whiteShading] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_WHITE_SHADING, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_WHITE_SHADING, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -888,7 +924,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[frameRate] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_FRAME_RATE, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_FRAME_RATE, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -912,7 +948,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[zoom] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_ZOOM, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_ZOOM, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -936,7 +972,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[pan] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_PAN, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_PAN, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -960,7 +996,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[tilt] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_TILT, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_TILT, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -984,7 +1020,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[opticalFilter] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_OPTICAL_FILTER, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_OPTICAL_FILTER, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -1008,7 +1044,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[captureSize] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_CAPTURE_SIZE, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_CAPTURE_SIZE, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -1032,7 +1068,7 @@ cdef class DC1394Camera(object):
                 raise DC1394Error("[captureQuality] not available")
 
             cdef uint32_t value
-            dc1394_feature_get_value(self.cam, DC1394_FEATURE_CAPTURE_QUALITY, & value)
+            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_CAPTURE_QUALITY, & value))
             return value
 
         def __set__(self, uint32_t value):
@@ -1241,18 +1277,3 @@ cdef class DC1394Camera(object):
         cdef dc1394featureset_t featureset
         DC1394SafeCall(dc1394_feature_get_all(self.cam, & featureset))
         DC1394SafeCall(dc1394_feature_print_all(& featureset, stderr))
-
-
-
-    def resetBus(self):
-        dc1394_reset_bus(self.cam);
-
-    def resetToFactoryDefault(self):
-        dc1394_camera_reset(self.cam)
-
-#
-# vim: filetype=pyrex
-#
-#
-#
-

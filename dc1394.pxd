@@ -405,6 +405,7 @@ cdef extern from "dc1394/dc1394.h":
     dc1394bool_t dc1394_capture_is_frame_corrupt (dc1394camera_t *, dc1394video_frame_t *) nogil
 
     dc1394error_t dc1394_camera_reset(dc1394camera_t *) nogil
+    dc1394error_t dc1394_iso_release_all(dc1394camera_t *) nogil
     dc1394error_t dc1394_camera_set_power(dc1394camera_t *camera, dc1394switch_t pwr) nogil
 
     dc1394error_t dc1394_software_trigger_get_power(dc1394camera_t *, dc1394switch_t *) nogil

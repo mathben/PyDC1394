@@ -101,7 +101,7 @@ class Event(object):
                     else:
                         callback(*(args + cargs))
                 except Exception, e:
-                    print("Error is %s" % str(e))
+                    print("Error is '%s'" % str(e))
                     #logger.exception("The error is %s" % str(e))
 
     __call__ = dispatch
