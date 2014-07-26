@@ -483,6 +483,20 @@ cdef class DC1394Camera(object):
         else:
             DC1394SafeCall(dc1394_feature_set_mode(self.cam, id, DC1394_FEATURE_MODE_MANUAL))
 
+    def get_whitebalance(self):
+        # return tuple of value (blue, red)
+        cdef uint32_t actual_rv_value
+        cdef uint32_t actual_bu_value
+        name = "White Balance"
+        feature = self.available_features_string.get(name, None)
+        if not feature:
+            raise DC1394Error("[%s] not available" % name)
+        id = feature["id"]
+        if id != DC1394_FEATURE_WHITE_BALANCE:
+            raise DC1394Error("[%s] wrong feature, use get_property" % name)
+        DC1394SafeCall(dc1394_feature_whitebalance_get_value(self.cam, & actual_bu_value, & actual_rv_value))
+        return (actual_bu_value, actual_rv_value)
+
     def set_whitebalance(self, RV_value=None, BU_value=None):
         cdef uint32_t actual_rv_value
         cdef uint32_t actual_bu_value
@@ -629,29 +643,6 @@ cdef class DC1394Camera(object):
 
             DC1394SafeCall(dc1394_feature_set_value(self.cam, DC1394_FEATURE_SHARPNESS, value))
 
-
-    # -------------------------------------------------------------------------
-    property whiteBalance:
-        def __get__(self):
-            if DC1394_FEATURE_WHITE_BALANCE not in self.available_features:
-                raise DC1394Error("[whiteBalance] not available")
-
-            cdef uint32_t value
-            DC1394SafeCall(dc1394_feature_get_value(self.cam, DC1394_FEATURE_WHITE_BALANCE, & value))
-            return value
-
-        def __set__(self, uint32_t value):
-            if DC1394_FEATURE_WHITE_BALANCE not in self.available_features:
-                raise DC1394Error("[whiteBalance not available")
-
-            feature = self.available_features[DC1394_FEATURE_WHITE_BALANCE]
-            if feature['current_mode'] == DC1394_FEATURE_MODE_AUTO:
-                raise DC1394Error("[whiteBalance] Currently In Auto Mode")
-
-            if value < feature['min'] or value > feature['max']:
-                raise DC1394Error("[whiteBalance] value out of range")
-
-            DC1394SafeCall(dc1394_feature_set_value(self.cam, DC1394_FEATURE_WHITE_BALANCE, value))
 
     # -------------------------------------------------------------------------
     property hue:
