@@ -20,14 +20,14 @@ try:
     from . import video1394
 except:
     pass
-from SeaGoatVision.server.media.media_streaming import MediaStreaming
-from SeaGoatVision.commons.param import Param
-from SeaGoatVision.server.core.configuration import Configuration
+from seagoatvision.server.media.media_streaming import MediaStreaming
+from seagoatvision.commons.param import Param
+from seagoatvision.server.core.configuration import Configuration
 import numpy as np
 from PIL import Image
 import cv2
 from cv2 import cv
-from SeaGoatVision.commons import log
+from seagoatvision.commons import log
 import time
 import thread
 import threading
